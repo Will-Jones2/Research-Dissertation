@@ -7,22 +7,14 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(PupillometryR)
 library(tidyverse)
-library(skimr)
-library(GGally)
 library(janitor)
 library(readxl)
 library(emmeans)
 library(stargazer)
-library(patchwork)
 library(broom)
 library(gtsummary)
-library("ggsci")
-library("PMCMRplus")
-library(ggprism)
 library(ggpubr)
-library(rstatix)
 library(lme4)
 library(lmerTest)
 library(DHARMa)
@@ -31,7 +23,6 @@ library(gtsummary)
 library(modelsummary)
 library(kableExtra)
 library(gt)
-library(ggh4x)
 
 ```
 
@@ -138,58 +129,22 @@ integrin_2 <- integrin_2 %>%
   rename(., Images = sample) %>% 
 rename(., Repeat = sample2) %>% 
 rename(., Mice = sheet2)
-  
-
-
 ```
 
-
-unlogged model
+###model1
 
 ```{r}
 model_mix_unlog <-  lmer(min_feret~sheet * muscle + (1|Mice/Repeat/Images), data = integrin_2)
 anova(model_mix_unlog, type = "I", arg="lme4")
 
 ```
-
-```{r, results='asis'}
-class(model_mix_unlog) <- "lmerMod"
-
-ci <- confint(model_mix_unlog,method="Wald") 
-
-
-
-stargazer::stargazer(model_mix_unlog,
-                     type="html",
-                     out = "model_mix_unlog.html", #used for pdf
-                     header = FALSE, #no header
-                     ci.custom = list(ci),#makes confidence intervals
-                     title= "", #title the table
-                     covariate.labels = c("WT Uninjured","a5 KO Uninjured", "a7 KO Uninjured", "Double KO Uninjured", "WT Injured ", "a5 KO Injured ","a7 KO Injured ", "Double KO Injured " ), #renames the column headings
-                     dep.var.labels = " Minimum Feret's Diameter (um)",
-                     intercept.top = TRUE, 
-                     intercept.bottom = FALSE)#renames the dependent variables 
-     
-library('predictmeans')
-library(MuMIn)
-
-#anovalmer(model_mix_unlog)
-lmerTest::ranova(model_mix_unlog)
-r.squaredGLMM(model_mix_unlog)               
-
-means_mix_unlog <- emmeans(model_mix_unlog, specs = pairwise ~ sheet*muscle) %>%
-  summary(infer = TRUE)
-means_mix_unlog
-
+```{r}
 sim_unlog <- simulateResiduals(model_mix_unlog)
 plot(sim_unlog)
 
 ```
 
-
-
-
-
+the unlogged model is not fitting, trying a logged model
 
 ##model logged 
 
@@ -199,6 +154,14 @@ model_mix <- lmer(log(min_feret)~sheet * muscle + (1|Mice/Repeat/Images), data =
 
 summary(model_mix)
 anova(model_mix, type = "3", arg="lme4")
+
+
+```
+
+check assumptions 
+```{r}
+sim <- simulateResiduals(model_mix)
+plot(sim)
 
 
 ```
@@ -212,7 +175,7 @@ tab_model(model_mix,  title = "",
   show.icc = TRUE,
   show.ngroups = TRUE,
   transform= "exp",
-  file = "model_mix summary.html")
+  file = "Table/model_mix summary .html")
 
 ```
 
@@ -224,9 +187,6 @@ r.squaredGLMM(model_mix)# r squared values
 
 ```
 
-
-
-
 ```{r, results='asis'}
 
 class(model_mix) <- "lmerMod"
@@ -237,7 +197,7 @@ OR <- function(x) exp(x)
 
 stargazer::stargazer(model_mix,
                      type="html", 
-                     out = "model_mix.html", #used for pdf
+                     out = "Table/model_mix.html", #used for pdf
                      header = FALSE, #no header
                      ci.custom = list(ci),#makes confidence intervals
                      title= " Summary model output for the interaction of Integrin knockout on the Minimum Ferets Diameter", #title the table
@@ -251,7 +211,7 @@ stargazer::stargazer(model_mix,
 
 ```{r}
 means_mix <- emmeans(model_mix, specs = pairwise ~ sheet*muscle, transform= "response") %>%
-  summary(infer = TRUE)
+  summary(infer = TRUE )
 means_mix
 ```
 
@@ -261,7 +221,7 @@ kableExtra::kbl(car::Anova(model_mix,
                            type="2")#run anova type 3
                 )%>% 
   kableExtra::kable_minimal() %>% 
-   save_kable(" anova model mix 1.html")
+   save_kable(" Table/anova model mix 1.html")
 
 anova(model_mix)
 ```
@@ -280,14 +240,14 @@ kableExtra::kbl(caption= "",
         column_spec(4:6, width="0.1cm",border_left = F) %>% 
 kableExtra::kable_classic() %>%  #sets the theme 
 kableExtra::footnote(general = "Asymptotic lower/upper confidence interval; asymp.LCL/UCL") %>% 
-save_kable(" emmeans model mix .html")
+save_kable(" Table/emmeans model mix .html")
 ```
 
 ```{r}
+#setting colour for p values 
 color.0.05 <- which( means_mix$contrasts$p.value <0.05)
 color.0.1 <- which( means_mix$contrasts$p.value <0.1)
 color.0.001 <- which( means_mix$contrasts$p.value <0.001)
-
 
  means_mix$contrasts %>% select(., -c(df,z.ratio)) %>% #removes clutter values 
 kableExtra::kbl(caption= "",
@@ -304,24 +264,9 @@ kableExtra::kbl(caption= "",
 kableExtra::footnote(general = "Asymptotic lower/upper confidence interval; asymp.LCL/UCL") %>% 
      row_spec(color.0.1, bold = T, color = "black", background = "lightgrey") %>% 
         row_spec(color.0.05, bold = T, color = "black", background = "lightblue") %>% 
-           row_spec(color.0.001, bold = T, color = "black", background = "steelblue") 
-
-
- #save_kable(" contrasts model mix .html")
+           row_spec(color.0.001, bold = T, color = "black", background = "steelblue") %>% 
+save_kable("Table/contrasts model mix .html")
 ```
-
-
-
-
-
-check assumptions 
-```{r}
-sim <- simulateResiduals(model_mix_unlog)
-plot(sim)
-
-
-```
-
 
 plot of data 
 ```{r, fig.width=12, fig.height= 15}
