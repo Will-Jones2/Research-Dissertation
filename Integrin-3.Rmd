@@ -1,0 +1,483 @@
+---
+title: "integrin-3"
+author: "Will Jones"
+date: "29/03/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(PupillometryR)
+library(tidyverse)
+library(skimr)
+library(GGally)
+library(janitor)
+library(readxl)
+library(emmeans)
+library(stargazer)
+library(patchwork)
+library(broom)
+library(gtsummary)
+library("ggsci")
+library("PMCMRplus")
+library(ggprism)
+library(ggpubr)
+library(rstatix)
+library(lme4)
+library(lmerTest)
+library(DHARMa)
+library(sjPlot)
+library(gtsummary)
+library(modelsummary)
+library(kableExtra)
+library(gt)
+library(ggh4x)
+
+```
+
+import and tidy
+```{r}
+# specifying the path for file
+setwd(".")
+
+# accessing all the sheets
+sheet = excel_sheets("FERETS DIAMETER NO LR.xlsx")
+
+# applying sheet names to dataframe names
+data_frame = lapply(setNames(sheet, sheet),
+					function(x) read_excel("FERETS DIAMETER NO LR.xlsx", sheet=x))
+
+# attaching all dataframes together
+data_frame = bind_rows(data_frame, .id="sheet")
+integrin_2 <- data_frame %>% 
+    select("sheet", "Fibre number","MinFeret",	"Muscle", "Sample") %>% 
+  mutate(sheet2 = sheet) %>% 
+  mutate(sample2 = Sample) %>% 
+  clean_names()
+
+  integrin_2_percentage <- integrin_2 
+  
+  integrin_2$sample2<-gsub("1","",as.factor(integrin_2$sample2)) 
+    integrin_2$sample2<-gsub("2","",as.factor(integrin_2$sample2)) 
+  integrin_2$sample2<-gsub("3","",as.factor(integrin_2$sample2)) 
+  integrin_2$sample2<-gsub("4","",as.factor(integrin_2$sample2)) 
+  
+    integrin_2$sample<-gsub("A","",as.factor(integrin_2$sample)) 
+    integrin_2$sample<-gsub("B","",as.factor(integrin_2$sample)) 
+  integrin_2$sample<-gsub("C","",as.factor(integrin_2$sample)) 
+  integrin_2$sample<-gsub("D","",as.factor(integrin_2$sample)) 
+  
+
+
+head(integrin_2)
+unique(integrin_2$sample2)
+head(integrin_2)
+
+```
+
+rename/group
+```{r}
+integrin_2$sheet <-  factor(integrin_2$sheet, levels = c("2010_S2",
+                                                     "519_S1",
+                                                     "531_S1",
+                                                     "367_S2",
+
+                                                     "6391_S2",
+                                                     "6385_S2",
+                                                     "6387_S2",
+
+                                                     "2009_S2",
+                                                     "532_S1",
+                                                     "530_S1",
+                                                     "439_S6",
+                                                     
+                                                      "529_S2",
+                                                     "360_S1",
+                                                     "295_S1"
+                                                      ),
+                                                      labels = c(
+                                                       "WT",
+                                                       "WT",
+                                                       "WT",
+                                                       "WT",
+
+                                                       "a5 KO",
+                                                      "a5 KO",
+                                                      "a5 KO",
+                                                     
+                                                       "a7 KO",
+                                                       "a7 KO",
+                                                       "a7 KO",
+                                                       "a7 KO", 
+                                                      
+                                                       "Double KO",
+                                                      "Double KO",
+                                                      "Double KO"
+                                                       ))
+                                                       
+                                              
+```
+
+changing levels
+```{r}
+integrin_2$muscle <- factor(integrin_2$muscle, levels= c("L","R"), labels = c("Uninjured muscle", "Injured muscle"))
+unique(integrin_2$muscle)
+
+```
+
+checking tidy data
+```{r}
+NA_integrin <- integrin_2 %>% 
+  filter(is.na(sample))
+  unique(NA_integrin$sheet2)
+```
+
+rename data 
+```{r}
+integrin_2 <- integrin_2 %>% 
+  rename(., Images = sample) %>% 
+rename(., Repeat = sample2) %>% 
+rename(., Mice = sheet2)
+  
+
+
+```
+
+
+unlogged model
+
+```{r}
+model_mix_unlog <-  lmer(min_feret~sheet * muscle + (1|Mice/Repeat/Images), data = integrin_2)
+anova(model_mix_unlog, type = "I", arg="lme4")
+
+```
+
+```{r, results='asis'}
+class(model_mix_unlog) <- "lmerMod"
+
+ci <- confint(model_mix_unlog,method="Wald") 
+
+
+
+stargazer::stargazer(model_mix_unlog,
+                     type="html",
+                     out = "model_mix_unlog.html", #used for pdf
+                     header = FALSE, #no header
+                     ci.custom = list(ci),#makes confidence intervals
+                     title= "", #title the table
+                     covariate.labels = c("WT Uninjured","a5 KO Uninjured", "a7 KO Uninjured", "Double KO Uninjured", "WT Injured ", "a5 KO Injured ","a7 KO Injured ", "Double KO Injured " ), #renames the column headings
+                     dep.var.labels = " Minimum Feret's Diameter (um)",
+                     intercept.top = TRUE, 
+                     intercept.bottom = FALSE)#renames the dependent variables 
+     
+library('predictmeans')
+library(MuMIn)
+
+#anovalmer(model_mix_unlog)
+lmerTest::ranova(model_mix_unlog)
+r.squaredGLMM(model_mix_unlog)               
+
+means_mix_unlog <- emmeans(model_mix_unlog, specs = pairwise ~ sheet*muscle) %>%
+  summary(infer = TRUE)
+means_mix_unlog
+
+sim_unlog <- simulateResiduals(model_mix_unlog)
+plot(sim_unlog)
+
+```
+
+
+
+
+
+
+##model logged 
+
+model_mix
+```{r}
+model_mix <- lmer(log(min_feret)~sheet * muscle + (1|Mice/Repeat/Images), data = integrin_2)
+
+summary(model_mix)
+anova(model_mix, type = "3", arg="lme4")
+
+
+```
+Tab model of model_mix
+```{r}
+tab_model(model_mix,  title = "",
+           dv.labels = "Minimium Feret's Diameter (\u03BCm)",
+  pred.labels = c("WT Uninjured","a5 KO Uninjured", "a7 KO Uninjured", "Double KO Uninjured", " WT Injured ", "a5 KO injured ","a7 KO injured ", "Double KO injured " ),
+  string.est= "Odds Ratio",
+    show.re.var= TRUE,
+  show.icc = TRUE,
+  show.ngroups = TRUE,
+  transform= "exp",
+  file = "model_mix summary.html")
+
+```
+
+```{r}
+library(MuMIn)
+drop1(model_mix,test="Chisq")
+anova(model_mix) # f value
+r.squaredGLMM(model_mix)# r squared values 
+
+```
+
+
+
+
+```{r, results='asis'}
+
+class(model_mix) <- "lmerMod"
+
+ci <- confint(model_mix,method="Wald") 
+OR <- function(x) exp(x)
+
+
+stargazer::stargazer(model_mix,
+                     type="html", 
+                     out = "model_mix.html", #used for pdf
+                     header = FALSE, #no header
+                     ci.custom = list(ci),#makes confidence intervals
+                     title= " Summary model output for the interaction of Integrin knockout on the Minimum Ferets Diameter", #title the table
+                     covariate.labels = c("WT","a5 KO", "a7 KO", "Double KO", "Injured muscle", "a5 KO injured muscle","a7 KO injured musle", "Double KO injured muscle" ), #renames the column headings
+                     dep.var.labels = " Minimum Ferets Diameter (um)",
+                     intercept.top = TRUE, 
+                     intercept.bottom = FALSE,#renames the dependent variables 
+                     apply.coef = exp, #exponentiate the coefficient 
+                    apply.ci = exp) 
+```
+
+```{r}
+means_mix <- emmeans(model_mix, specs = pairwise ~ sheet*muscle, transform= "response") %>%
+  summary(infer = TRUE)
+means_mix
+```
+
+
+```{r}
+kableExtra::kbl(car::Anova(model_mix, 
+                           type="2")#run anova type 3
+                )%>% 
+  kableExtra::kable_minimal() %>% 
+   save_kable(" anova model mix 1.html")
+
+anova(model_mix)
+```
+
+```{r}
+means_mix$emmeans %>% select(., -c(p.value,df,z.ratio)) %>% #removes clutter values 
+kableExtra::kbl(caption= "",
+                digits = 2, #makes all dp to 3
+                col.names = (c("Genotype","Type of muscle","Minimum Feret's diameter",
+                               "SE","asymp.LCL","asymp.UCL")),
+                table.attr = "style='width:80%;'"
+                )%>% 
+  column_spec(1, width="2cm",border_left = F) %>% 
+    column_spec(2, width="1cm",border_left = F) %>% 
+      column_spec(3, width="0.1cm",border_left = F) %>% 
+        column_spec(4:6, width="0.1cm",border_left = F) %>% 
+kableExtra::kable_classic() %>%  #sets the theme 
+kableExtra::footnote(general = "Asymptotic lower/upper confidence interval; asymp.LCL/UCL") %>% 
+save_kable(" emmeans model mix .html")
+```
+
+```{r}
+color.0.05 <- which( means_mix$contrasts$p.value <0.05)
+color.0.1 <- which( means_mix$contrasts$p.value <0.1)
+color.0.001 <- which( means_mix$contrasts$p.value <0.001)
+
+
+ means_mix$contrasts %>% select(., -c(df,z.ratio)) %>% #removes clutter values 
+kableExtra::kbl(caption= "",
+                digits = 3, #makes all dp to 3
+                col.names = (c("Variables","Minimum Feret's diameter",
+                               "SE","asymp.LCL","asymp.UCL","p value")),
+              table.attr = "style='width:80%;'"
+                )%>% 
+  kableExtra::kable_classic() %>%  #sets the theme 
+    column_spec(1, width="0cm",border_left = F) %>% 
+    column_spec(2, width="0.5cm",border_left = F) %>% 
+      column_spec(3, width="0.1cm",border_left = F) %>% 
+        column_spec(4:6, width="0cm",border_left = F) %>% 
+kableExtra::footnote(general = "Asymptotic lower/upper confidence interval; asymp.LCL/UCL") %>% 
+     row_spec(color.0.1, bold = T, color = "black", background = "lightgrey") %>% 
+        row_spec(color.0.05, bold = T, color = "black", background = "lightblue") %>% 
+           row_spec(color.0.001, bold = T, color = "black", background = "steelblue") 
+
+
+ #save_kable(" contrasts model mix .html")
+```
+
+
+
+
+
+check assumptions 
+```{r}
+sim <- simulateResiduals(model_mix_unlog)
+plot(sim)
+
+
+```
+
+
+plot of data 
+```{r, fig.width=12, fig.height= 15}
+plot_mix <- means_mix$emmeans%>% 
+  as_tibble() %>%    #creating a table from the emmeans of modelA 
+  ggplot(aes(x=sheet,
+             y=response,
+             group=sheet))+  
+geom_jitter(data=integrin_2, aes(x=sheet, 
+                                y=min_feret,
+                                colour=sheet),
+                                width=0.17, 
+                                alpha=0.3, 
+            size= 1.5)+ 
+  geom_flat_violin(data= integrin_2, position = position_nudge(x = .2, y = 0), aes(x= sheet, y= min_feret,colour=sheet, fill=sheet, alpha = 0.8))+
+ geom_errorbar(size=1.1, aes(ymin=asymp.LCL,
+                     ymax=asymp.UCL,
+                     width=0.35,
+                    ))+
+   geom_pointrange(fill="white", shape= 21 , size= 0.9,
+                      aes(ymin=asymp.LCL,
+                     ymax=asymp.UCL,#adding in lower and upper condifence intervals 
+                     ))+ 
+  theme_classic() +
+ theme(axis.title.x = element_text(vjust= -2),
+         axis.title.y = element_text(vjust= 3),
+    strip.background = element_blank() ,#removing facet wrap boxes around F0 and F1 
+        legend.title = element_text(size = 25),#making the size of the figure legend title larger 
+        legend.text=element_text(size= 8),#make the legend text smaller 
+        axis.text.y=element_text(size=21),
+    axis.text.x=element_text(size=19),#make axis title bigger
+        axis.title=element_text(size=25),#make axis title easier to read 
+         legend.position = "none", #make the figure lengend top right and closer to the plot
+        plot.margin = margin(.1, 1.1, 0.9, .5, "cm"),#making the margins larger to fit the text in
+        strip.text.x = element_text(size = 23, 
+                                    colour = "black" ),
+    panel.spacing.x=unit(3, "lines"),
+    ggh4x.axis.ticks.length.minor = rel(2))+
+        labs(x= "Muscle Genotype", #changing x axis title
+       y= "Minimum Feret's Diameter (\u03BCm)")+
+   scale_y_continuous(breaks=seq(0,70,10),
+                      guide = "axis_minor")+
+  scale_x_discrete(labels=list("Wt" = "WT", "a5 KO" = "\u03b15 KO",
+                             "a7 KO" ="\u03b17 KO", "Double KO"= "Double KO"))+
+  scale_color_manual(values=c("#999999", "#E69F00", "#56B4E9", "deeppink3"))+
+  scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9", "deeppink3"))+
+ # scale_color_npg()+
+   #scale_fill_npg()+
+  facet_wrap(.~muscle)+
+  #annotate("segment",x=Inf,xend=-Inf,y=Inf,yend=Inf,color="black",lwd=0.5)+
+  ggsave(path= "images", filename= "integrin_mix.jpeg", width = 35, height = 39, units = "cm")
+  #save 
+
+
+plot_mix
+```
+
+plot of data for presentation
+```{r, fig.width=12, fig.height= 15}
+plot_mix_presentation <- means_mix$emmeans%>% 
+  as_tibble() %>%    #creating a table from the emmeans of modelA 
+  ggplot(aes(x=sheet,
+             y=response,
+             group=sheet))+  
+geom_jitter(data=integrin_2, aes(x=sheet, 
+                                y=min_feret,
+                                colour=sheet),
+                                width=0.17, 
+                                alpha=0.3, 
+            size= 1.5)+ 
+  geom_flat_violin(data= integrin_2, position = position_nudge(x = .2, y = 0), aes(x= sheet, y= min_feret,colour=sheet, fill=sheet, alpha = 0.3))+
+ geom_errorbar(size=1.5, aes(ymin=asymp.LCL,
+                     ymax=asymp.UCL,
+                     width=0.35,
+                    ))+
+   geom_pointrange(fill="white", shape= 21 , size= 1.5,
+                      aes(ymin=asymp.LCL,
+                     ymax=asymp.UCL,#adding in lower and upper condifence intervals 
+                     ))+ 
+  theme_classic() +
+ theme(axis.title.x = element_text(vjust= -2),
+         axis.title.y = element_text(vjust= 3),
+    strip.background = element_blank() ,#removing facet wrap boxes around F0 and F1 
+        legend.title = element_text(size = 25),#making the size of the figure legend title larger 
+        legend.text=element_text(size= 8),#make the legend text smaller 
+        axis.text.y=element_text(size=28),
+    axis.text.x=element_text(size=25),#make axis title bigger
+        axis.title=element_text(size=25),#make axis title easier to read 
+         legend.position = "none", #make the figure lengend top right and closer to the plot
+        plot.margin = margin(.1, 1.1, 0.9, .5, "cm"),#making the margins larger to fit the text in
+        strip.text.x = element_text(size = 33, 
+                                    colour = "black" ),
+    panel.spacing.x=unit(3, "lines"))+
+        labs(x= "Muscle Genotype", #changing x axis title
+       y= "Minimum Feret's Diameter (\u03BCm)")+
+   scale_y_continuous(breaks=seq(0,70,10))+
+  scale_x_discrete(labels=list("Wt" = "WT", "a5 KO" = "\u03b15 KO",
+                             "a7 KO" ="\u03b17 KO", "Double KO"= "DKO"))+
+  scale_color_manual(values=c("#999999", "#E69F00", "#56B4E9", "deeppink3"))+
+  scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9", "deeppink3"))+
+ # scale_color_npg()+
+   #scale_fill_npg()+
+  facet_wrap(.~muscle)+
+  #annotate("segment",x=Inf,xend=-Inf,y=Inf,yend=Inf,color="black",lwd=0.5)+
+  ggsave(path= "images", filename= "integrin_mix presentation.jpeg", width = 35, height = 39, units = "cm")
+  #save 
+
+
+plot_mix_presentation
+```
+
+```{r}
+means_mix_percent <- means_mix$emmeans %>% as_tibble() %>% 
+  select(sheet, muscle, response) %>% 
+    pivot_wider(names_from = muscle, values_from = response) %>% 
+  rename( Uninjured = "Uninjured muscle", Injured= "Injured muscle" ) %>% 
+    mutate(percent = Injured/Uninjured*100)
+means_mix_percent
+```
+
+```{r, fig.width=6, fig.height= 6}
+plot_regen <- ggplot(means_mix_percent, aes(x= sheet ,y= percent, fill= sheet))+
+geom_col(aes(colour= sheet )) +
+  #geom_errorbar(aes(ymin = percent-se, ymax = percent+se), width = 0.2) +
+  theme_classic()+
+   scale_color_manual(values=c("#999999", "#E69F00", "#56B4E9", "deeppink3"))+
+  scale_fill_manual(values=c("#999999", "#E69F00", "#56B4E9", "deeppink3"))+
+  theme(axis.title.x = element_text(vjust= -1.5),
+         axis.title.y = element_text(vjust= 2.5),
+    strip.background = element_blank(),#removing facet wrap boxes around F0 and F1 
+        legend.title = element_text(size = 25),#making the size of the figure legend title larger 
+        legend.text=element_text(size= 8),#make the legend text smaller 
+        axis.text.y=element_text(size=30),
+    axis.text.x=element_text(size=30),#make axis title bigger
+        axis.title=element_text(size=30),#make axis title easier to read 
+         legend.position = "none", #make the figure lengend top right and closer to the plot
+        plot.margin = margin(.1, 1.1, 0.9, .5, "cm"),#making the margins larger to fit the text in
+        strip.text.x = element_text(size = 23, 
+                                    colour = "black" ))+
+  labs(y= "Muscle regeneration (%)", 
+       x= "Genotype")+
+  scale_y_continuous(labels = function(x) paste0(x, "%"),breaks=seq(0,100,10))+
+  scale_x_discrete(labels=list("Wt" = "WT", "a5 KO" = "\u03b15 KO",
+                             "a7 KO" ="\u03b17 KO", "Double KO"= "Double KO"))+
+       annotate("text", x = 4, y = 44.04, label = "***",size= 10)+
+  annotate("text", x = 3, y = 65.8, label = "***",size= 10)+
+     annotate("text", x = 2, y = 70, label = "***",size= 10)+
+  
+      annotate("text", x = 1, y = 71, label = "73.0%",size= 12)+
+  annotate("text", x = 2, y = 62, label = "63.6%",size= 12)+
+     annotate("text", x = 3, y = 59, label = "61.0%",size= 12)+
+       annotate("text", x = 4, y = 38, label = "40.4%",size= 12)+
+ ggsave(filename = "muscle regeneration.jpg", path= "Images", height= 15, width = 15)
+
+
+plot_regen
+```
+
+
